@@ -3,4 +3,5 @@ sshq
 *.out
 *.log
 *.swp
+*.bin
 .DS_Store
