@@ -1,10 +1,5 @@
-# pattern
-#
-# foldername or file_name or pattern based files @name
-#
-
+# default ownership: all files
 *               @kshitijshettyyy
+
+# .github ownership
 /.github/       @SiddharthChadachal
-
-
-# for additional codeownership please add owners corresponding to their directories/files above this line 
