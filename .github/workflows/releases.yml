@@ -137,7 +137,7 @@ jobs:
         with:
           repository: TheBoredEngineers/homebrew-sshq
           path: homebrew-tap
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
 
       - name: Download macOS binaries
         run: |
