@@ -1,0 +1,156 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    name: Build binaries
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Build binary
+        run: |
+          mkdir -p dist
+          BIN_NAME="sshq_${{ matrix.goos }}_${{ matrix.goarch }}"
+          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} CGO_ENABLED=0 \
+            go build -o dist/$BIN_NAME .
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+
+  packages:
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download built binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Install FPM
+        run: sudo apt-get update && sudo apt-get install -y ruby ruby-dev gcc make && sudo gem install --no-document fpm
+
+      - name: Create .deb and .rpm packages
+        run: |
+          mkdir -p artifacts
+
+          for bin in dist/*/*; do
+            filename=$(basename "$bin")               # sshq_linux_amd64
+            arch=$(echo "$filename" | cut -d'_' -f3)  # amd64
+            os=$(echo "$filename" | cut -d'_' -f2)    # linux / darwin
+
+            if [ "$os" = "darwin" ]; then
+              # No linux packages for macOS binaries
+              continue
+            fi
+
+            chmod +x "$bin"
+
+            version="${GITHUB_REF_NAME#v}"  # strip the 'v' prefix
+
+            # Create .deb
+            fpm -s dir -t deb \
+              -n sshq \
+              -v "$version" \
+              -a "$arch" \
+              --description "SSH alias manager and connector" \
+              --license "MIT" \
+              "$bin=/usr/local/bin/sshq"
+
+            # Create .rpm
+            fpm -s dir -t rpm \
+              -n sshq \
+              -v "$version" \
+              -a "$arch" \
+              --description "SSH alias manager and connector" \
+              --license "MIT" \
+              "$bin=/usr/local/bin/sshq"
+
+            mv *.deb artifacts/ || true
+            mv *.rpm artifacts/ || true
+          done
+
+      - name: Upload package artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages
+          path: artifacts/*
+
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build, packages]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release_assets
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: release_assets/**/*
+
+  update-homebrew:
+    name: Update Homebrew Formula
+    runs-on: ubuntu-latest
+    needs: release
+
+    steps:
+      - name: Download macOS arm64 binary
+        run: |
+          curl -L -o sshq_darwin_arm64 \
+            https://github.com/TheBoredEngineers/sshq/releases/download/${{ github.ref_name }}/sshq_darwin_arm64
+
+      - name: Calculate SHA256
+        id: sha
+        run: |
+          echo "sha=$(shasum -a 256 sshq_darwin_arm64 | cut -d' ' -f1)" >> $GITHUB_OUTPUT
+
+      - name: Update formula in homebrew tap
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          commit-message: "Update sshq to ${{ github.ref_name }}"
+          title: "Update sshq to ${{ github.ref_name }}"
+          branch: update-sshq-${{ github.ref_name }}
+          base: main
+          path: sshq.rb
+          body: |
+            Automated update for sshq version ${{ github.ref_name }}.
+            New SHA256 checksum: ${{ steps.sha.outputs.sha }}
+          add-paths: |
+            sshq.rb
+
