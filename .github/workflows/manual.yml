@@ -1,0 +1,15 @@
+name: Manual Test
+
+# This allows the workflow to be triggered manually via the "Run workflow" button
+on:
+  workflow_dispatch:
+
+jobs:
+  say-hello:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Print a greeting
+        run: echo "Hello from manual workflow!"
